@@ -1,4 +1,21 @@
 #No AI was used to generate this code. Authored by Hadil Ghazal on 2/25/26
+#KAGGLE FINAL SUBMISSION STRATEGY:
+##the intitial v1 submission achieved an auroc of .9421 and it had included 
+### donation features (like counts and averages and lifetime amount)
+### tenure: years since the first donation
+### additional features including seasons
+### distance to stadium(this is to determine proximity and commitment due to access ease)
+
+#THE GOAL OF V2 submission is to improve:
+### improve tracking performance without rebuilding or anything to invasice
+## enhancing using subscription feasures, catching new indicators average subscription tier and total subscription seats
+###Hoping that this will capture casual subscribers versus heavy hitting big spender subscribers
+
+
+#Going to do a V3 upload, after V2, the model imroved from 0.9421 to 0.9476 
+#THis shows how adding more sub features helped but not as much as i expected it to, going to try again
+#want to include some recency data here, if the most recent subscription was long ago versus very recent, that might be worth exploring.
+
 
 #Initial Imports
 import pandas as pd
@@ -22,6 +39,10 @@ test = pd.read_csv('for_students/test.csv')
 test.rename(columns={'ID': 'account.id'}, inplace=True)  # this is a temp patch. My join is failing without it. Need to fix in V2
 accounts = pd.read_csv('for_students/account.csv',encoding='latin1')
 subs = pd.read_csv('for_students/subscriptions.csv',encoding='latin1')
+#V3: extracting the ending year from season 
+subs['season_end_year'] = subs['season'].str[-4:].astype(int)
+
+#resuming
 tickets = pd.read_csv('for_students/tickets_all.csv',encoding='latin1')
 concerts = pd.read_csv('for_students/concerts.csv',encoding='latin1')
 concerts14 = pd.read_csv('for_students/concerts_2014-15.csv',encoding='latin1')
@@ -93,7 +114,26 @@ test_full['distance_to_stadium'] = haversine(
 )
 
 # Step 5) Aggregate subscriptions
-subs_agg = subs.groupby('account.id')['season'].nunique().reset_index().rename(columns={'season':'num_subscription_seasons'})
+######This was only counting how many seasons someone subscribed, area of enhancement opportunity
+#subs_agg = subs.groupby('account.id')['season'].nunique().reset_index().rename(columns={'season':'num_subscription_seasons'})
+#########################################
+#########V2 for final submission, I'm enhancing this step to look at aggregate of the subsciption ie the avg subscription level and total seats purchased
+############################################
+subs_agg = subs.groupby('account.id').agg({
+    'season': 'nunique', #capturing how many different seasons subscribed
+    'subscription_tier': 'mean', #wasn't including this in v1 - indicator for average subscription level(higher is more premium)
+    'no.seats': 'sum', #This is the total seats purchased which will tell us the engagement level 
+    'season_end_year': 'max' #V3 most recent sub 
+}).reset_index()
+
+#Renaming the colunms V2 SUBMISISON
+subs_agg.rename(columns={
+'season': 'num_subscription_seasons',
+'subscription_tier': 'avg_subscription_tier',
+'no.seats': 'total_subscription_seats',
+'season_end_year': 'last_subscription_year'
+}, inplace=True)
+
 tickets_agg = tickets.groupby('account.id')['season'].nunique().reset_index().rename(columns={'season':'num_ticket_seasons'})
 
 # Step 6) Merge aggregates
@@ -102,6 +142,12 @@ train_full = train_full.merge(tickets_agg, on='account.id', how='left')
 
 test_full = test_full.merge(subs_agg, on='account.id', how='left')
 test_full = test_full.merge(tickets_agg, on='account.id', how='left')
+
+
+# V3: this is how long since last subscription to account for recency
+train_full['years_since_last_sub'] = 2026 - train_full['last_subscription_year']
+test_full['years_since_last_sub'] = 2026 - test_full['last_subscription_year']
+
 
 # Step 7 -Fill NA  values
 train_full = train_full.fillna(0)
@@ -112,6 +158,10 @@ test_full  = test_full.fillna(0)
   ##              'years_since_first_contribution', 'num_subscription_seasons',
     ##            'num_ticket_seasons']
     ##V2 after change
+
+  ###########################
+  # #####V2 enhancement adding that here############
+  # adding additional subscrption signals below - labeled as v2 enhancemnt 
 feature_cols = [
     'amount.donated.lifetime', 
     'no.donations.lifetime',
@@ -119,7 +169,10 @@ feature_cols = [
     'years_since_first_contribution',
     'num_subscription_seasons',
     'num_ticket_seasons',
-    'distance_to_stadium' 
+    'distance_to_stadium',
+    'avg_subscription_tier', #V2 enhancement to include sub granularity 
+    'total_subscription_seats', # v2 enhancement to capture level of investment 
+    'years_since_last_sub' #V3 enhancement
 ]
 
 X = train_full[feature_cols]
